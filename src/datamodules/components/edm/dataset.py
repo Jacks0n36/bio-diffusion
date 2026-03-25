@@ -6,6 +6,7 @@ import torch
 import os
 
 import src.datamodules.components.edm.build_geom_dataset as build_geom_dataset
+import src.datamodules.components.edm.build_molpile_dataset as build_molpile_dataset
 
 from omegaconf import DictConfig
 from functools import partial
@@ -31,6 +32,7 @@ def set_worker_sharing_strategy(worker_id: int):
 
 
 def retrieve_dataloaders(dataloader_cfg: DictConfig):
+    print("retrieving dataloaders")
     if "QM9" in dataloader_cfg.dataset:
         batch_size = dataloader_cfg.batch_size
         num_workers = dataloader_cfg.num_workers
@@ -105,9 +107,43 @@ def retrieve_dataloaders(dataloader_cfg: DictConfig):
             )
         del split_data
         charge_scale = None
+    
+    elif "MolPILE" in dataloader_cfg.dataset:
+        dataset_info = get_dataset_info(dataloader_cfg.dataset, dataloader_cfg.remove_h)
+        data_file = os.path.join("data", "EDM", "MolPILE", "MolPILE_10.npy")
+        split_data = build_molpile_dataset.load_split_data(data_file,
+                                                        val_proportion=0.1,
+                                                        test_proportion=0.1,
+                                                        filter_size=dataloader_cfg.filter_molecule_size)
+        transform = build_molpile_dataset.MolPILETransform(dataset_info,
+                                                          dataloader_cfg.include_charges,
+                                                          dataloader_cfg.device,
+                                                          dataloader_cfg.sequential)
+        dataloaders = {}
+        for split, data_list in zip(["train", "valid", "test"], split_data):
+            dataset = build_molpile_dataset.MolPILEDataset(data_list,
+                                                          transform=transform,
+                                                          create_pyg_graphs=dataloader_cfg.create_pyg_graphs,
+                                                          num_radials=dataloader_cfg.num_radials,
+                                                          device=dataloader_cfg.device)
+            shuffle = (split == "train") and not dataloader_cfg.sequential
+
+            # Sequential dataloading disabled for now.
+            dataloader_class = (
+                partial(build_molpile_dataset.MolPILEPyGDataLoader, sequential=dataloader_cfg.sequential)
+                if dataloader_cfg.create_pyg_graphs
+                else partial(build_molpile_dataset.MolPILETorchDataLoader, sequential=dataloader_cfg.sequential)
+            )
+            dataloaders[split] = dataloader_class(
+                dataset=dataset,
+                batch_size=dataloader_cfg.batch_size,
+                shuffle=shuffle
+            )
+        del split_data
+        charge_scale = None
     else:
         raise ValueError(f"Unknown dataset {dataloader_cfg.dataset}")
-
+    print("dataloader has been returned")
     return dataloaders, charge_scale
 
 

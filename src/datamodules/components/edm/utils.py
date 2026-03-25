@@ -224,6 +224,81 @@ def initialize_datasets(args, data_dir, dataset, subset=None, splits=None,
     return args, datasets, num_species, max_charge
 
 
+def initialize_molpile_datasets(args, data_dir, dataset, subset=None, splits=None,
+                        force_download=False, subtract_thermo=False,
+                        remove_h=False, create_pyg_graphs=False,
+                        num_radials=1, device="cpu"):
+    num_pts = {"train": args.num_train, "test": args.num_test, "valid": args.num_valid}
+
+    # Download and process dataset. Returns datafiles.
+    datafiles = ["/home/schwe/.data/molpile_cryptands.npy"]
+
+    # Load downloaded/processed datasets
+    datasets = {}
+    for split, datafile in datafiles.items():
+        with np.load(datafile) as f:
+            datasets[split] = {key: torch.from_numpy(
+                val) for key, val in f.items()}
+            
+    # TODO: remove hydrogens here if needed
+    if remove_h:
+        for key, dataset in datasets.items():
+            pos = dataset["positions"]
+            charges = dataset["charges"]
+            num_atoms = dataset["num_atoms"]
+
+            # Check that charges corresponds to real atoms
+            assert torch.sum(num_atoms != torch.sum(charges > 0, dim=1)) == 0
+
+            mask = dataset["charges"] > 1
+            new_positions = torch.zeros_like(pos)
+            new_charges = torch.zeros_like(charges)
+            for i in range(new_positions.shape[0]):
+                m = mask[i]
+                p = pos[i][m]   # positions to keep
+                p = p - torch.mean(p, dim=0)    # Center the new positions
+                c = charges[i][m]   # Charges to keep
+                n = torch.sum(m)
+                new_positions[i, :n, :] = p
+                new_charges[i, :n] = c
+
+            dataset["positions"] = new_positions
+            dataset["charges"] = new_charges
+            dataset["num_atoms"] = torch.sum(dataset["charges"] > 0, dim=1)
+
+    all_species = _get_species(datasets, ignore_check=False)
+
+    # Now initialize MolecularDataset based upon loaded data
+    datasets = {
+        split: ProcessedDataset(data,
+                                num_pts=num_pts.get(split, -1),
+                                included_species=all_species,
+                                subtract_thermo=subtract_thermo,
+                                create_pyg_graphs=create_pyg_graphs,
+                                num_radials=num_radials,
+                                device=device)
+        for split, data in datasets.items()
+    }
+
+    # Check that all datasets have the same included species:
+    assert(
+        len(set(tuple(data.included_species.tolist()) for data in datasets.values())) == 1), \
+        "All datasets must have same included_species! {}".format(
+            {key: data.included_species for key, data in datasets.items()}
+    )
+
+    # These parameters are necessary to initialize the network
+    num_species = datasets["train"].num_species
+    max_charge = datasets["train"].max_charge
+
+    # Now, update the number of training/test/validation sets in args
+    args.num_train = datasets["train"].num_pts
+    args.num_valid = datasets["valid"].num_pts
+    args.num_test = datasets["test"].num_pts
+
+    return args, datasets, num_species, max_charge
+    
+
 def _get_species(datasets, ignore_check=False):
     """
     Generate a list of all species.
@@ -337,6 +412,7 @@ def prepare_context(
     positions_key: str = "x",
     atom_mask_key: str = "mask"
 ) -> TensorType["batch_num_nodes", "num_conditions"]:
+    print(f'batch = {batch}')
     node_mask = batch[atom_mask_key].unsqueeze(-1)
     batch_size, num_nodes = (batch.index.shape[0], batch[positions_key].shape[0])
 
@@ -380,3 +456,47 @@ def prepare_context(
         context = torch.zeros_like(node_mask)
 
     return context
+
+
+def load_split_data(conformation_file, val_proportion=0.1, test_proportion=0.1,
+                    filter_size=None):
+    from pathlib import Path
+    path = Path(conformation_file)
+    base_path = path.parent.absolute()
+
+    # base_path = os.path.dirname(conformation_file)
+    all_data = np.load(conformation_file)  # 2d array: num_atoms x 5
+
+    mol_id = all_data[:, 0].astype(int)
+    conformers = all_data[:, 1:]
+    # Get ids corresponding to new molecules
+    split_indices = np.nonzero(mol_id[:-1] - mol_id[1:])[0] + 1
+    data_list = np.split(conformers, split_indices)
+    print(f"len(data_list) = {len(data_list)}")
+    # Filter based on molecule size.
+    if filter_size is not None:
+        # Keep only molecules <= filter_size
+        data_list = [molecule for molecule in data_list
+                     if molecule.shape[0] <= filter_size]
+
+        assert len(data_list) > 0, "No molecules left after filter."
+    print(f"len(data_list) = {len(data_list)}")
+    
+    # CAREFUL! Only for first time run:
+    np.random.seed(42)
+    perm = np.random.permutation(len(data_list)).astype("int32")
+    # log.warning("Currently taking a random permutation for "
+    #       "train/val/test partitions, this needs to be fixed for"
+    #       "reproducibility.")
+    assert not os.path.exists(os.path.join(base_path, "MolPILE_permutation.npy"))
+    np.save(os.path.join(base_path, "MolPILE_permutation.npy"), perm)
+    del perm
+
+    perm = np.load(os.path.join(base_path, "MolPILE_permutation.npy"))
+    data_list = np.array([data_list[i] for i in perm], dtype=object)
+
+    num_mol = len(data_list)
+    val_index = int(num_mol * val_proportion)
+    test_index = val_index + int(num_mol * test_proportion)
+    val_data, test_data, train_data = np.split(data_list, [val_index, test_index])
+    return train_data, val_data, test_data

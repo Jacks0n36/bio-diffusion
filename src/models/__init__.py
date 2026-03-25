@@ -421,6 +421,7 @@ class CategoricalDistribution:
     def __init__(self, histogram_dict: Dict[int, int], mapping: Dict[str, int]):
         histogram = np.zeros(len(mapping))
         for k, v in histogram_dict.items():
+            k = int(k)
             histogram[k] = v
 
         # normalize histogram

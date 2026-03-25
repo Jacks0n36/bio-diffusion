@@ -7,10 +7,9 @@ import os
 import torch
 import torchmetrics
 
-import numpy as np
 import torch.nn.functional as F
 
-from time import time, strftime
+from time import time
 from pathlib import Path
 from rdkit import Chem
 from pytorch_lightning import LightningModule
@@ -24,7 +23,7 @@ import src.datamodules.components.edm.utils as qm9utils
 
 from src.models.components import centralize, num_nodes_to_batch_index, save_xyz_file, visualize_mol, visualize_mol_chain
 from src.datamodules.components.edm.rdkit_functions import BasicMolecularMetrics, build_molecule, process_molecule
-from src.datamodules.components.edm.datasets_config import QM9_SECOND_HALF, QM9_WITH_H, QM9_WITHOUT_H, MolPILE_NO_H, MolPILE_WITH_H
+from src.datamodules.components.edm.datasets_config import MolPILE_NO_H, MolPILE_WITH_H
 from src.datamodules.components.edm import check_molecular_stability, get_bond_length_arrays
 from src.models.components.egnn import EGNNDynamics
 from src.models.components.variational_diffusion import EquivariantVariationalDiffusion
@@ -43,8 +42,8 @@ patch_typeguard()  # use before @typechecked
 log = get_pylogger(__name__)
 
 
-class QM9MoleculeGenerationDDPM(LightningModule):
-    """LightningModule for QM9 small molecule generation using a DDPM.
+class MolPILEMoleculeGenerationDDPM(LightningModule):
+    """LightningModule for MolPILE molecule generation using a DDPM.
 
     This LightningModule organizes the PyTorch code into 9 sections:
         - Computations (init)
@@ -112,15 +111,8 @@ class QM9MoleculeGenerationDDPM(LightningModule):
         self.condition_on_context = len(module_cfg.conditioning) > 0
 
         # dataset metadata
-        dataset_info_mapping = {
-            "QM9": QM9_WITHOUT_H if dataloader_cfg.remove_h else QM9_WITH_H,
-            "QM9_second_half": QM9_SECOND_HALF,
-            "MolPILE": MolPILE_NO_H if dataloader_cfg.remove_h else MolPILE_WITH_H
-        }
+        dataset_info_mapping = {"MolPILE": MolPILE_NO_H if dataloader_cfg.remove_h else MolPILE_WITH_H}
         self.dataset_info = dataset_info_mapping[dataloader_cfg.dataset]
-
-        if dataloader_cfg.dataset == "QM9_second_half" and dataloader_cfg.remove_h:
-            raise NotImplementedError(f"Missing config for dataset {dataloader_cfg.dataset} without hydrogen atoms")
 
         # PyTorch modules #
         dynamics_network = dynamics_networks[diffusion_cfg.dynamics_network](
@@ -169,12 +161,12 @@ class QM9MoleculeGenerationDDPM(LightningModule):
                 setattr(self, f"{phase}_{metric}", torchmetrics.MeanMetric())
 
         # sample metrics
-        smiles_list = (
-            None
-            if (dataloader_cfg.smiles_filepath is None)
-            or not os.path.exists(dataloader_cfg.smiles_filepath)
-            else np.load(dataloader_cfg.smiles_filepath, allow_pickle=True)
-        )
+        if (dataloader_cfg.smiles_filepath is None) or not os.path.exists(dataloader_cfg.smiles_filepath):
+            smiles_list = None
+        else:
+            with open(dataloader_cfg.smiles_filepath, "r") as f:
+                smiles_list = f.read().split("\n")
+                smiles_list.remove("")  # remove last line (i.e., an empty entry)
         self.molecular_metrics = BasicMolecularMetrics(
             self.dataset_info,
             data_dir=dataloader_cfg.data_dir,
@@ -204,9 +196,13 @@ class QM9MoleculeGenerationDDPM(LightningModule):
         )
 
         # construct invariant node features
+        # print(f"batch.charges = {batch.charges}")
+        print(f"batch.charges.shape = {batch.charges.shape}")
         batch.h = {"categorical": batch.one_hot, "integer": batch.charges}
+        print(f"batch.h['integer'].shape = {batch.h['integer'].shape}")
 
         # derive property contexts (i.e., conditionals)
+        print(f"condition_on_context = {self.condition_on_context}")
         if self.condition_on_context:
             batch.props_context = qm9utils.prepare_context(
                 list(self.hparams.module_cfg.conditioning),
@@ -222,6 +218,10 @@ class QM9MoleculeGenerationDDPM(LightningModule):
 
         # note: `L` terms in e.g., the GCDM paper represent log-likelihoods,
         # while our loss terms are negative (!) log-likelihoods
+        print("about to enter ddpm")
+        print(f"batch.h['integer'].shape = {batch.h['integer'].shape}")
+        print("entering ddpm run...")
+        # print(f"entering ddpm run using ddpm: {self.ddpm}...")
         (
             delta_log_px, error_t, SNR_weight,
             loss_0_x, loss_0_h, neg_log_const_0,
@@ -609,11 +609,7 @@ class QM9MoleculeGenerationDDPM(LightningModule):
             assert int(num_nodes.max()) <= max_num_nodes
 
         # context-conditioning
-        if self.condition_on_context:
-            if context is None:
-                context = self.props_distr.sample_batch(num_nodes)
-        else:
-            context = None
+        context = None
 
         # sampling
         xh, batch_index, _ = self.ddpm.mol_gen_sample(
@@ -628,118 +624,10 @@ class QM9MoleculeGenerationDDPM(LightningModule):
         )
 
         x = xh[:, :self.num_x_dims]
-        one_hot = xh[:, self.num_x_dims:-1] if self.include_charges else xh[:, self.num_x_dims:]
+        one_hot = xh[:, self.num_x_dims:-1] if self.c else xh[:, self.num_x_dims:]
         charges = xh[:, -1:] if self.include_charges else torch.zeros(0, device=self.device)
 
-        return x, one_hot, charges, batch_index
-
-    @torch.inference_mode()
-    @typechecked
-    def optimize(
-        self,
-        samples: List[Tuple[torch.Tensor, torch.Tensor]],
-        num_timesteps: int,
-        num_nodes: TensorType["batch_size"],
-        context: TensorType["batch_size", "num_context_features"],
-        node_mask: Optional[TensorType["batch_num_nodes"]] = None,
-        sampling_output_dir: Optional[str] = None,
-        optim_property: Optional[str] = None,
-        iteration_index: Optional[int] = None,
-        return_frames: int = 1,
-        id_from: int = 0,
-        chain_viz_batch_element_idx: int = 0,
-        name: str = os.sep + "chain",
-        norm_with_original_timesteps: bool = False,
-        verbose: bool = True
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        # context-conditioning
-        if self.condition_on_context:
-            if context is None:
-                context = self.props_distr.sample_batch(num_nodes)
-        else:
-            raise Exception("Optimization requires a context conditional to optimize (e.g., `alpha`).")
-
-        # sampling
-        xh, batch_index, _ = self.ddpm.mol_gen_optimize(
-            samples=samples,
-            num_nodes=num_nodes,
-            node_mask=node_mask,
-            context=context,
-            device=self.device,
-            num_timesteps=num_timesteps,
-            return_frames=return_frames,
-            norm_with_original_timesteps=norm_with_original_timesteps,
-        )
-
-        # visualize optimized samples
-        if return_frames > 1:
-            assert all([p is not None for p in [sampling_output_dir, optim_property, iteration_index]]), \
-                "Required parameters must be provided to visualize optimized molecules."
-            
-            # choose which molecule (i.e., the first) in the current batch to visualize
-            xh_sample = xh[:, (batch_index == chain_viz_batch_element_idx), :]
-            chain = reverse_tensor(xh_sample)
-
-            # repeat last frame to see final sample better
-            chain = torch.cat([chain, chain[-1:].repeat(10, 1, 1)], dim=0)
-
-            # check stability of the generated molecule
-            x_final = chain[-1, :, :self.num_x_dims].cpu().detach()
-            one_hot_final = chain[-1, :, self.num_x_dims:-1] if self.include_charges else chain[-1, :, self.num_x_dims:]
-            one_hot_final = torch.argmax(one_hot_final, dim=-1).cpu().detach()
-
-            mol_stable = check_molecular_stability(
-                positions=x_final,
-                atom_types=one_hot_final,
-                dataset_info=self.dataset_info
-            )[0]
-
-            # prepare entire chain
-            x = chain[:, :, :self.num_x_dims]
-            one_hot = chain[:, :, self.num_x_dims:-1] if self.include_charges else chain[:, :, self.num_x_dims:]
-            one_hot = F.one_hot(
-                torch.argmax(one_hot, dim=-1),
-                num_classes=self.num_atom_types
-            )
-            charges = (
-                torch.round(chain[:, :, -1:]).long()
-                if self.include_charges
-                else torch.zeros(0, dtype=torch.long, device=self.device)
-            )
-
-            if mol_stable and verbose:
-                log.info("Found stable molecule to visualize :)")
-            elif verbose:
-                log.info("Did not find stable molecule to visualize :(")
-
-            # flatten (i.e., treat frame (chain dimension) as batch for visualization)
-            x_flat = x.view(-1, x.size(-1))
-            one_hot_flat = one_hot.view(-1, one_hot.size(-1))
-            charges_flat = torch.tensor([])
-            batch_index_flat = torch.arange(x.size(0)).repeat_interleave(x.size(1))
-
-            output_dir = Path(sampling_output_dir, optim_property, strftime("%Y%m%d-%H%M%S"), f"iteration_{iteration_index}", "chain")
-            save_xyz_file(
-                path=str(output_dir),
-                positions=x_flat,
-                one_hot=one_hot_flat,
-                charges=charges_flat,
-                dataset_info=self.dataset_info,
-                id_from=id_from,
-                name=name,
-                batch_index=batch_index_flat
-            )
-
-            visualize_mol_chain(str(output_dir), dataset_info=self.dataset_info)
-
-            x = xh[0, :, :self.num_x_dims]
-            one_hot = xh[0, :, self.num_x_dims:-1] if self.include_charges else xh[0, :, self.num_x_dims:]
         
-        # directly score optimize samples
-        else:
-            x = xh[:, :self.num_x_dims]
-            one_hot = xh[:, self.num_x_dims:-1] if self.include_charges else xh[:, self.num_x_dims:]
-            charges = xh[:, -1:] if self.include_charges else torch.zeros(0, device=self.device)
 
         return x, one_hot, charges, batch_index
 
@@ -784,11 +672,7 @@ class QM9MoleculeGenerationDDPM(LightningModule):
             assert int(num_nodes.max()) <= max_num_nodes
 
             # context-conditioning
-            if self.condition_on_context:
-                if context is None:
-                    context = self.props_distr.sample_batch(num_nodes)
-            else:
-                context = None
+            context = None
 
             xh, batch_index, _ = self.ddpm.mol_gen_sample(
                 num_samples=num_samples_batch,
@@ -833,7 +717,7 @@ class QM9MoleculeGenerationDDPM(LightningModule):
             save_xyz_file(
                 path=str(output_dir) + "/",
                 positions=torch.cat([pos for pos, _ in molecules], dim=0),
-                one_hot=torch.tensor(atom_one_hots) if self.include_charges else torch.zeros(0),
+                one_hot=torch.tensor(atom_one_hots),
                 charges=torch.tensor(charges) if self.include_charges else torch.zeros(0),
                 dataset_info=self.dataset_info,
                 id_from=id_from,
@@ -890,18 +774,14 @@ class QM9MoleculeGenerationDDPM(LightningModule):
     def sample_and_save(
         self,
         num_samples: int,
-        num_nodes: Optional[TensorType["batch_size"]] = None,
         node_mask: Optional[TensorType["batch_num_nodes"]] = None,
         context: Optional[TensorType["batch_size", "num_context_features"]] = None,
         num_timesteps: Optional[int] = None,
         id_from: int = 0,
-        name: str = "molecule",
-        sampling_output_dir: Optional[Path] = None,
-        norm_with_original_timesteps: bool = False,
+        name: str = "molecule"
     ):
         # node count-conditioning
-        if num_nodes is None:
-            num_nodes = self.ddpm.num_nodes_distribution.sample(num_samples)
+        num_nodes = self.ddpm.num_nodes_distribution.sample(num_samples)
         max_num_nodes = (
             self.dataset_info["max_n_nodes"]
             if "max_n_nodes" in self.dataset_info
@@ -910,11 +790,7 @@ class QM9MoleculeGenerationDDPM(LightningModule):
         assert int(num_nodes.max()) <= max_num_nodes
 
         # context-conditioning
-        if self.condition_on_context:
-            if context is None:
-                context = self.props_distr.sample_batch(num_nodes)
-        else:
-            context = None
+        context = None
 
         # sampling
         xh, batch_index, _ = self.ddpm.mol_gen_sample(
@@ -923,19 +799,14 @@ class QM9MoleculeGenerationDDPM(LightningModule):
             node_mask=node_mask,
             context=context,
             device=self.device,
-            num_timesteps=num_timesteps,
-            norm_with_original_timesteps=norm_with_original_timesteps,
+            num_timesteps=num_timesteps
         )
 
         x = xh[:, :self.num_x_dims]
         one_hot = xh[:, self.num_x_dims:-1] if self.include_charges else xh[:, self.num_x_dims:]
         charges = xh[:, -1:] if self.include_charges else torch.zeros(0, device=self.device)
 
-        output_dir = (
-            sampling_output_dir
-            if sampling_output_dir is not None
-            else Path(self.sampling_output_dir, f"epoch_{self.current_epoch}")
-        )
+        output_dir = Path(self.sampling_output_dir, f"epoch_{self.current_epoch}")
         save_xyz_file(
             path=str(output_dir) + "/",
             positions=x,
@@ -969,8 +840,8 @@ class QM9MoleculeGenerationDDPM(LightningModule):
         num_samples = 1
 
         # node count-conditioning
-        if "QM9" in self.dataset_info["name"]:
-            num_nodes = torch.tensor([19], dtype=torch.long, device=self.device)
+        if "GEOM" in self.dataset_info["name"]:
+            num_nodes = torch.tensor([44], dtype=torch.long, device=self.device)
         else:
             if verbose:
                 log.info(f"Sampling `num_nodes` for dataset {self.dataset_info['name']}")
@@ -983,11 +854,7 @@ class QM9MoleculeGenerationDDPM(LightningModule):
             assert int(num_nodes.max()) <= max_num_nodes
 
         # context-conditioning
-        if self.condition_on_context:
-            if context is None:
-                context = self.props_distr.sample_batch(num_nodes)
-        else:
-            context = None
+        context = None
 
         one_hot, x = [None] * 2
         for i in range(num_tries):
@@ -1085,7 +952,7 @@ class QM9MoleculeGenerationDDPM(LightningModule):
             sanitize: whether to sanitize molecules
             largest_frag: whether to return only the largest molecular fragment
             add_hydrogens: whether to include hydrogen atoms in the generated molecule
-            sample_chain: whether to sample a chain of molecules
+            sample_chain: whether to sample a chain of frames
             relax_iter: number of force field optimization steps
             num_timesteps: number of denoising steps; will use training value instead if `None`
             node_mask: mask indicating which nodes are to be ignored during model generation
@@ -1107,11 +974,7 @@ class QM9MoleculeGenerationDDPM(LightningModule):
             assert int(num_nodes.max()) <= max_num_nodes
 
         # context-conditioning
-        if self.condition_on_context:
-            if context is None:
-                context = self.props_distr.sample_batch(num_nodes)
-        else:
-            context = None
+        context = None
 
         # sampling
         if sample_chain:
@@ -1328,5 +1191,5 @@ if __name__ == "__main__":
     import pyrootutils
 
     root = pyrootutils.setup_root(__file__, pythonpath=True)
-    cfg = omegaconf.OmegaConf.load(root / "configs" / "model" / "qm9_mol_gen_ddpm.yaml")
+    cfg = omegaconf.OmegaConf.load(root / "configs" / "model" / "molpile_mol_gen_ddpm.yaml")
     _ = hydra.utils.instantiate(cfg)

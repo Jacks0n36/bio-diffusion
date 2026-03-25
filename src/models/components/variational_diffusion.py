@@ -267,6 +267,8 @@ class EquivariantVariationalDiffusion(nn.Module):
         dataloader_cfg: DictConfig,
         dataset_info: Dict[str, Any]
     ):
+        # not accessed during call to run from constructor
+        # print("building EVD (DDPM) module...")
         super().__init__()
 
         # ensure config arguments are of valid values and structures
@@ -410,6 +412,7 @@ class EquivariantVariationalDiffusion(nn.Module):
 
         # note: this projection only works because Gaussians are
         # rotation-invariant around zero and their samples are independent!
+        print(f"creating Batch from x_masked={x_masked}")
         _, x_projected = centralize(
             Batch(x=x_masked),
             "x",
@@ -435,8 +438,11 @@ class EquivariantVariationalDiffusion(nn.Module):
         node_mask: TensorType["batch_num_nodes"],
         device: Union[torch.device, str]
     ) -> torch.Tensor:
+        print(size)
         x = torch.randn(size, device=device)
+        print(x.shape)
         x_masked = x * node_mask.float().unsqueeze(-1)
+        print(x_masked.shape)
         return x_masked
 
     @staticmethod
@@ -702,12 +708,14 @@ class EquivariantVariationalDiffusion(nn.Module):
     def normalize(
         self,
         x: TensorType["batch_num_nodes", 3],
-        h: Union[Dict[str, H_INPUT_TYPE], H_INPUT_TYPE],
+        # h: Union[Dict[str, H_INPUT_TYPE], H_INPUT_TYPE],
+        h: Union[Dict[str, torch.Tensor], torch.Tensor],
         node_mask: TensorType["batch_num_nodes"],
         generate_x_only: bool = False
     ) -> Tuple[
         TensorType["batch_num_nodes", 3],
-        Union[Dict[str, H_INPUT_TYPE], H_INPUT_TYPE]
+        # Union[Dict[str, H_INPUT_TYPE], H_INPUT_TYPE]
+        Union[Dict[str, torch.Tensor], torch.Tensor]
     ]:
         x = x / self.diffusion_cfg.norm_values[0]
 
@@ -724,7 +732,7 @@ class EquivariantVariationalDiffusion(nn.Module):
         )
 
         if self.include_charges:
-            h_int = h_int * node_mask.float()
+            h_int = h_int * node_mask.float().unsqueeze(-1)
 
         # create new `h` dictionary
         h = {"categorical": h_cat, "integer": h_int}
@@ -801,6 +809,9 @@ class EquivariantVariationalDiffusion(nn.Module):
         """
         Sample mean-centered normal noise for `z_x`, and standard normal noise for `z_h`.
         """
+        print(f"batch_index = {batch_index}")
+        print(f"len(batch_index) = {len(batch_index)}")
+        print(f"self.num_x_dims = {self.num_x_dims}")
         z_x = self.sample_center_gravity_zero_gaussian_with_mask(
             size=(len(batch_index), self.num_x_dims),
             batch_index=batch_index,
@@ -810,11 +821,14 @@ class EquivariantVariationalDiffusion(nn.Module):
         if generate_x_only:
             # bypass calculations for `h`
             return z_x
+        print(f"self.num_node_scalar_features = {self.num_node_scalar_features}")
         z_h = self.sample_gaussian_with_mask(
             size=(len(batch_index), self.num_node_scalar_features),
             node_mask=node_mask,
             device=batch_index.device
         )
+        print("here's what we have")
+        print(z_x.shape, z_h.shape)
         z = torch.cat([z_x, z_h], dim=-1)
         return z
 
@@ -926,6 +940,8 @@ class EquivariantVariationalDiffusion(nn.Module):
         eps = self.sample_combined_position_feature_noise(batch_index, node_mask, generate_x_only=generate_x_only)
 
         # sample `z_t` given `x`, `h` for timestep `t`, from q(`z_t` | `x`, `h`)
+        print(alpha_t[batch_index].shape, sigma_t[batch_index].shape)
+        print(xh.shape, eps.shape)
         z_t = alpha_t[batch_index] * xh + sigma_t[batch_index] * eps
 
         return z_t, eps
@@ -964,8 +980,11 @@ class EquivariantVariationalDiffusion(nn.Module):
         Compute the loss and NLL terms for molecule generation (i.e., atom types and coordinates) in 3D.
         """
         # normalize data and take into account volume change in `x`
+        print(f"pre-normalization batch.h['integer'].shape = {batch.h['integer'].shape}")
         x_init, h_init = self.normalize(batch.x, batch.h, node_mask=batch.mask)
         batch.x, batch.h = x_init, h_init
+
+        print(f"batch.h[integer].shape = {batch.h['integer'].shape}")
 
         # retrieve batch properties for simple reference later
         batch_index, batch_size, num_nodes, node_mask = (
@@ -1006,11 +1025,17 @@ class EquivariantVariationalDiffusion(nn.Module):
         gamma_t = inflate_batch_array(self.gamma(t), batch.x)
 
         # concatenate `x`, `h`[integer] and `h`[categorical]
+        
+        print(batch.x.shape)
+        print(batch.h["categorical"].shape)
+        print(batch.h["integer"].shape)
+
         if self.include_charges:
             xh = torch.cat([batch.x, batch.h["categorical"], batch.h["integer"].reshape(-1, 1)], dim=-1)
         else:
             xh = torch.cat([batch.x, batch.h["categorical"]], dim=-1)
 
+        print(f"xh.shape = {xh.shape}")
         # derive noised representations of nodes
         z_t, eps_t = self.compute_noised_representation(xh, batch_index, batch.mask, gamma_t)
 
@@ -1185,6 +1210,7 @@ class EquivariantVariationalDiffusion(nn.Module):
         )
 
         # remove center of mass
+        print(f"creating Batch using zt slice = {zt[:, :self.num_x_dims]}")
         _, zt_x = centralize(
             Batch(x=zt[:, :self.num_x_dims]),
             key="x",
@@ -1263,6 +1289,7 @@ class EquivariantVariationalDiffusion(nn.Module):
         )
 
         # project node positions down to avoid numerical runaway of the center of gravity
+        print(f"Batch from zs slice: {zs[:, :self.num_x_dims]}")
         _, zs_x = centralize(
             Batch(x=zs[:, :self.num_x_dims]),
             key="x",
@@ -1393,6 +1420,7 @@ class EquivariantVariationalDiffusion(nn.Module):
             max_cog = scatter(x, batch_index, dim=0, reduce="sum").abs().max().item()
             if max_cog > 5e-2:
                 log.warning(f"CoG drift with error {max_cog:.3f}. Projecting the positions down.")
+                print(f"Batch from x in `mol_gen_sample`: {x}")
                 _, x = centralize(
                     Batch(x=x),
                     key="x",
@@ -1529,6 +1557,7 @@ class EquivariantVariationalDiffusion(nn.Module):
             max_cog = scatter(x, batch_index, dim=0, reduce="sum").abs().max().item()
             if max_cog > 5e-2:
                 log.warning(f"CoG drift with error {max_cog:.3f}. Projecting the positions down.")
+                print(f"Batch from x in `mol_gen_optimize`: {x}")
                 _, x = centralize(
                     Batch(x=x),
                     key="x",
@@ -1770,6 +1799,7 @@ class EquivariantVariationalDiffusion(nn.Module):
             max_cog = scatter(x, molecule["batch_index"], dim=0, reduce="sum").abs().max().item()
             if max_cog > 5e-2:
                 log.warning(f"CoG drift with error {max_cog:.3f}. Projecting the positions down.")
+                print(f"Batch from x in `inpaint: {x}")
                 _, x = centralize(
                     Batch(x=x),
                     key="x",

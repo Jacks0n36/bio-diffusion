@@ -6,7 +6,7 @@ import torch
 import logging
 import torch_geometric
 
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union, TypedDict
 from torch_geometric.data import Data, Dataset, Batch
 
 from src.datamodules.components.helper import _normalize
@@ -38,6 +38,11 @@ def _edge_features(
     return edge_s, edge_v
 
 
+class NodeFeatureDict(TypedDict, total=False):
+    categorical: TensorType["num_nodes", "num_atom_types"]
+    integer: torch.Tensor
+
+
 @typechecked
 def _node_features(
     batch: Batch,
@@ -45,13 +50,7 @@ def _node_features(
     edm_sampling: bool = False
 ) -> Tuple[
     Union[
-        Dict[
-            str,
-            Union[
-                TensorType["num_nodes", "num_atom_types"],
-                torch.Tensor  # note: for when `include_charges=False`
-            ]
-        ],
+        NodeFeatureDict,
         TensorType["num_nodes", "num_node_scalar_features"],
         Optional[torch.Tensor]
     ],

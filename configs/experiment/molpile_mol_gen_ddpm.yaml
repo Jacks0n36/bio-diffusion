@@ -1,18 +1,18 @@
 # @package _global_
 
 # to execute this experiment run:
-# python train.py experiment=qm9_mol_gen_ddpm
+# python train.py experiment=molpile_mol_gen_ddpm
 
 defaults:
-  - override /datamodule: edm_qm9.yaml
-  - override /model: qm9_mol_gen_ddpm.yaml
+  - override /datamodule: edm_molpile.yaml
+  - override /model: molpile_mol_gen_ddpm.yaml
   - override /callbacks: default.yaml
   - override /trainer: default.yaml
 
 # all parameters below will be merged with parameters from default configurations set above
 # this allows you to overwrite only specified parameters
 
-tags: ["molecule_generation", "qm9"]
+tags: ["molecule_generation", "molpile"]
 
 seed: 42
 
@@ -25,7 +25,7 @@ callbacks:
     patience: 10
 
 trainer:
-  min_epochs: 1000
+  min_epochs: 50
   max_epochs: 5000
   strategy: ddp_find_unused_parameters_false
   accelerator: cpu
@@ -122,6 +122,6 @@ datamodule:
 
 logger:
   wandb:
-    name: 02092023_QM9MoleculeGenerationDDPM
-    group: "QM9"
+    name: 02112026_MolPILEMoleculeGenerationDDPM
+    group: "MolPILE"
     tags: ${tags}

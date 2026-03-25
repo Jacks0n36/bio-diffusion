@@ -38,7 +38,7 @@ class EDMDataModule(LightningDataModule):
         Do not use it to assign state (e.g., self.x = y).
         """
         data_path = os.path.join(self.hparams.dataloader_cfg.data_dir, self.hparams.dataloader_cfg.dataset)
-
+        # print(f"self.hparams.dataloader_cfg.dataset = {self.hparams.dataloader_cfg.dataset}")
         if "QM9" in self.hparams.dataloader_cfg.dataset and not all([
             os.path.exists(os.path.join(data_path, "train.npz")),
             os.path.exists(os.path.join(data_path, "valid.npz")),
@@ -59,13 +59,16 @@ class EDMDataModule(LightningDataModule):
         Note: This method is called by Lightning with both `trainer.fit()` and `trainer.test()`.
         """
         # load dataloaders only if not loaded already
+        print('retrieve dataloaders from `setup`')
         if not self.dataloader_train and not self.dataloader_val and not self.dataloader_test:
             self.dataloaders, self.charge_scale = retrieve_dataloaders(self.hparams.dataloader_cfg)
             self.dataloader_train, self.dataloader_val, self.dataloader_test = (
                 self.dataloaders["train"], self.dataloaders["valid"], self.dataloaders["test"]
             )
+            print('done getting dataloader')
 
     def train_dataloader(self):
+        print('using self.dataloader_train')
         return self.dataloader_train
 
     def val_dataloader(self):
