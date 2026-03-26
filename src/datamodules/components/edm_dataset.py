@@ -6,11 +6,12 @@ import torch
 import logging
 import torch_geometric
 
-from typing import Any, Dict, Optional, Tuple, Union, TypedDict
+from typing import Any, Dict, Optional, Tuple, Union
 from torch_geometric.data import Data, Dataset, Batch
 
 from src.datamodules.components.helper import _normalize
 from src.datamodules.components.protein_graph_dataset import ProteinGraphDataset
+from src.utils.utils import NodeFeatureDict
 
 from torchtyping import TensorType, patch_typeguard
 from typeguard import typechecked
@@ -36,11 +37,6 @@ def _edge_features(
     edge_s, edge_v = map(torch.nan_to_num, (edge_s, edge_v))
 
     return edge_s, edge_v
-
-
-class NodeFeatureDict(TypedDict, total=False):
-    categorical: TensorType["num_nodes", "num_atom_types"]
-    integer: torch.Tensor
 
 
 @typechecked

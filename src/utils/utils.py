@@ -6,16 +6,19 @@ import hydra
 import signal
 import time
 import warnings
+import torch
 
 from importlib.util import find_spec
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Union
+from typing import Any, Callable, Dict, List, Union, TypedDict
+from torchtyping import TensorType
 
 from contextlib import contextmanager
 from omegaconf import DictConfig
 from pytorch_lightning import Callback
 from pytorch_lightning.loggers import LightningLoggerBase
 from pytorch_lightning.utilities import rank_zero_only
+
 
 from src.utils import pylogger, rich_utils
 
@@ -25,6 +28,11 @@ from typeguard import typechecked
 patch_typeguard()  # use before @typechecked
 
 log = pylogger.get_pylogger(__name__)
+
+
+class NodeFeatureDict(TypedDict, total=False):
+    categorical: TensorType["num_nodes", "num_atom_types"]
+    integer: torch.Tensor
 
 
 def task_wrapper(task_func: Callable) -> Callable:

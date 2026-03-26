@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from src.models.components import centralize, num_nodes_to_batch_index
 from src.models import NumNodesDistribution, inflate_batch_array
+from src.utils.utils import NodeFeatureDict
 
 from torchtyping import TensorType, patch_typeguard
 from typeguard import typechecked
@@ -29,10 +30,7 @@ patch_typeguard()  # use before @typechecked
 log = get_pylogger(__name__)
 
 
-H_INPUT_TYPE = Union[
-    TensorType["batch_num_nodes", "num_atom_types"],
-    torch.Tensor  # note: for when `include_charges=False`
-]
+H_INPUT_TYPE = NodeFeatureDict
 NODE_FEATURE_DIFFUSION_TARGETS = ["atom_types_and_coords"]
 
 
