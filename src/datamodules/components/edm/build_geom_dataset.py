@@ -94,7 +94,7 @@ def load_split_data(conformation_file, val_proportion=0.1, test_proportion=0.1,
 
     # base_path = os.path.dirname(conformation_file)
     all_data = np.load(conformation_file)  # 2d array: num_atoms x 5
-
+    # all_data = np.load(conformation_file, mmap_mode="r")
     mol_id = all_data[:, 0].astype(int)
     conformers = all_data[:, 1:]
     # Get ids corresponding to new molecules
@@ -119,12 +119,19 @@ def load_split_data(conformation_file, val_proportion=0.1, test_proportion=0.1,
     # del perm
 
     perm = np.load(os.path.join(base_path, "GEOM_permutation.npy"))
-    data_list = np.array([data_list[i] for i in perm], dtype=object)
+    # data_lists = [np.array(data_list[i]) for i in perm]
+    # for dl in data_lists:
+    #     print(dl.shape)
+    data_list = [data_list[i] for i in perm]
+    # data_list = np.array([data_list[i] for i in perm], dtype=np.float32)
 
     num_mol = len(data_list)
     val_index = int(num_mol * val_proportion)
     test_index = val_index + int(num_mol * test_proportion)
-    val_data, test_data, train_data = np.split(data_list, [val_index, test_index])
+    val_data = data_list[:val_index]
+    test_data = data_list[val_index:val_index+test_index]
+    train_data = data_list[val_index+test_index:]
+    # val_data, test_data, train_data = np.split(data_list, [val_index, test_index])
     return train_data, val_data, test_data
 
 
@@ -317,6 +324,7 @@ class GeomDrugsTransform(object):
     def __call__(self, data):
         n = data.shape[0]
         new_data = {}
+        print(data[:, -3:])
         new_data["positions"] = torch.from_numpy(data[:, -3:])
         atom_types = torch.from_numpy(data[:, 0].astype(int)[:, None])
         one_hot = atom_types == self.atomic_number_list

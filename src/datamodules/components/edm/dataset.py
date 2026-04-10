@@ -110,7 +110,7 @@ def retrieve_dataloaders(dataloader_cfg: DictConfig):
     
     elif "MolPILE" in dataloader_cfg.dataset:
         dataset_info = get_dataset_info(dataloader_cfg.dataset, dataloader_cfg.remove_h)
-        data_file = os.path.join("data", "EDM", "MolPILE", "MolPILE_10.npy")
+        data_file = os.path.join("data", "EDM", "MolPILE", "2", "MolPILE_2.npy")
         split_data = build_molpile_dataset.load_split_data(data_file,
                                                         val_proportion=0.1,
                                                         test_proportion=0.1,
@@ -121,6 +121,7 @@ def retrieve_dataloaders(dataloader_cfg: DictConfig):
                                                           dataloader_cfg.sequential)
         dataloaders = {}
         for split, data_list in zip(["train", "valid", "test"], split_data):
+            print(f"len(data_list) = {len(data_list)}")
             dataset = build_molpile_dataset.MolPILEDataset(data_list,
                                                           transform=transform,
                                                           create_pyg_graphs=dataloader_cfg.create_pyg_graphs,

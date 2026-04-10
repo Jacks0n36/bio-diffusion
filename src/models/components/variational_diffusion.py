@@ -528,13 +528,15 @@ class EquivariantVariationalDiffusion(nn.Module):
         mu_T_x, mu_T_h = mu_T[:, :self.num_x_dims], None if generate_x_only else mu_T[:, self.num_x_dims:]
 
         # compute standard deviations (only batch axis for `x`-part, inflated for `h`-part)
-        sigma_T_x = self.sigma(gamma_T, mu_T_x).squeeze()
-        sigma_T_h = None if generate_x_only else self.sigma(gamma_T, mu_T_h).squeeze()
+        print(self.sigma(gamma_T, mu_T_x))
+        sigma_T_x = self.sigma(gamma_T, mu_T_x).squeeze(1)
+        sigma_T_h = None if generate_x_only else self.sigma(gamma_T, mu_T_h).squeeze(1)
 
         # compute KL divergence for `x`-part
         zeros, ones = torch.zeros_like(mu_T_x), torch.ones_like(sigma_T_x)
         mu_norm = self.sum_node_features_except_batch((mu_T_x - zeros) ** 2, batch_index)
         subspace_d = self.subspace_dimensionality(num_nodes)
+        # print(sigma_T_x, type(sigma_T_x))
         kl_distance_x = self.gaussian_KL(
             q_mu_minus_p_mu_squared=mu_norm,
             q_sigma=sigma_T_x,
@@ -601,7 +603,7 @@ class EquivariantVariationalDiffusion(nn.Module):
     @typechecked
     def log_pxh_given_z0_without_constants(
         self,
-        h: Union[Dict[str, H_INPUT_TYPE], H_INPUT_TYPE],
+        h: NodeFeatureDict,
         z_0: TensorType["batch_num_nodes", "num_x_dims_plus_num_node_scalar_features"],
         eps: TensorType["batch_num_nodes", "num_x_dims_plus_num_node_scalar_features"],
         net_out: TensorType["batch_num_nodes", "num_x_dims_plus_num_node_scalar_features"],
@@ -985,9 +987,13 @@ class EquivariantVariationalDiffusion(nn.Module):
         print(f"batch.h[integer].shape = {batch.h['integer'].shape}")
 
         # retrieve batch properties for simple reference later
+
         batch_index, batch_size, num_nodes, node_mask = (
             batch.batch, batch.num_graphs, batch.num_nodes_present, batch.mask
         )
+        print("printing batch hatch match latch catch info...")
+        print(batch_index, batch_size, num_nodes, node_mask)
+        
 
         # account for likelihood change due to normalization
         delta_log_px = self.delta_log_px(num_nodes)
@@ -1101,7 +1107,9 @@ class EquivariantVariationalDiffusion(nn.Module):
             num_nodes=num_nodes,
             device=batch.x.device
         )
-
+        # print("exiting...")
+        # exit()
+        print(self.training)
         if self.training:
             # compute the `L_0` term (even if `gamma_t` is not actually `gamma_0`),
             # as this will later be selected via masking
@@ -1154,8 +1162,12 @@ class EquivariantVariationalDiffusion(nn.Module):
             loss_0_h = -log_ph_given_z0
 
         # sample node counts prior
+        print("querying num_node log probabilities...")
+        print(num_nodes)
         log_pN = self.log_pN(num_nodes)
-
+        print(log_pN)
+        # print("exiting...")
+        # exit()
         # assemble loss terms
         loss_terms = (
             delta_log_px, error_t, SNR_weight,
@@ -1815,3 +1827,4 @@ class EquivariantVariationalDiffusion(nn.Module):
 
         # remove frame dimension if only the final molecule is returned
         return out.squeeze(0)
+    

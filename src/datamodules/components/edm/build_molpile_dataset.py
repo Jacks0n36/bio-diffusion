@@ -120,12 +120,14 @@ def load_split_data(conformation_file, val_proportion=0.1, test_proportion=0.1,
     # del perm
 
     perm = np.load(os.path.join(base_path, "MolPILE_permutation.npy"))
-    data_list = np.array([data_list[i] for i in perm], dtype=object)
+    data_list = [data_list[i] for i in perm]
 
     num_mol = len(data_list)
     val_index = int(num_mol * val_proportion)
     test_index = val_index + int(num_mol * test_proportion)
-    val_data, test_data, train_data = np.split(data_list, [val_index, test_index])
+    val_data = data_list[:val_index]
+    test_data = data_list[val_index:val_index+test_index]
+    train_data = data_list[val_index+test_index:]
     return train_data, val_data, test_data
 
 
@@ -220,6 +222,7 @@ class MolPILEDataset(Dataset):
 
         sample["index"] = torch.tensor(idx, dtype=torch.long)
         print("getting element from MolPILEDataset")
+        # print(sample)
         return self.featurize_as_graph(sample)
 
 
@@ -338,9 +341,14 @@ class MolPILETransform(object):
     def __call__(self, data):
         n = data.shape[0]
         new_data = {}
-        new_data["positions"] = torch.from_numpy(data[:, -3:])
+        print(data[:, -4:-1])
+        print(type(data[:, -4:-1]), print(type(data[:, -4:-1][0]), print(type(data[:, -4:-1][0][0]))))
+        new_data["positions"] = torch.from_numpy(data[:, -4:-1])
+        print(f"new_data['positions'] = {new_data['positions']}")
         atom_types = torch.from_numpy(data[:, 0].astype(int)[:, None])
+        print(f"atom_types = {atom_types}")
         one_hot = atom_types == self.atomic_number_list
+        print(f"one_hot = {one_hot}")
         new_data["one_hot"] = one_hot
         if self.include_charges:
             new_data["charges"] = torch.zeros(n, 1, device=self.device)
