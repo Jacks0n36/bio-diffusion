@@ -109,11 +109,13 @@ def retrieve_dataloaders(dataloader_cfg: DictConfig):
         charge_scale = None
     
     elif "MolPILE" in dataloader_cfg.dataset:
+        print(f"dataloader_cfg.remove_h = {dataloader_cfg.remove_h}")
         dataset_info = get_dataset_info(dataloader_cfg.dataset, dataloader_cfg.remove_h)
-        data_file = os.path.join("data", "EDM", "MolPILE", "2", "MolPILE_2.npy")
+        print(dataset_info["n_nodes"])
+        data_file = os.path.join("data", "EDM", "MolPILE", "all", "MolPILE_8683.npy")
         split_data = build_molpile_dataset.load_split_data(data_file,
-                                                        val_proportion=0.1,
-                                                        test_proportion=0.1,
+                                                        val_proportion=0.2,
+                                                        test_proportion=0.2,
                                                         filter_size=dataloader_cfg.filter_molecule_size)
         transform = build_molpile_dataset.MolPILETransform(dataset_info,
                                                           dataloader_cfg.include_charges,

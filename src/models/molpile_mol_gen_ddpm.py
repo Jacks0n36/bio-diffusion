@@ -213,7 +213,12 @@ class MolPILEMoleculeGenerationDDPM(LightningModule):
             batch.props_context = None
 
         # derive node counts per batch
+        print(f"batch.mask.int() = {batch.mask.int()}")
+        print(batch.mask.int().shape)
+        print(f"batch.batch = {batch.batch}")
+        print(batch.batch.shape)
         num_nodes = scatter(batch.mask.int(), batch.batch, dim=0, reduce="sum")
+        print(f"num_nodes = {num_nodes}")
         batch.num_nodes_present = num_nodes
 
         # note: `L` terms in e.g., the GCDM paper represent log-likelihoods,

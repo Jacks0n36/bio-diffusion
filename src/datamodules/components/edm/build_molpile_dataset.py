@@ -96,10 +96,21 @@ def load_split_data(conformation_file, val_proportion=0.1, test_proportion=0.1,
     all_data = np.load(conformation_file)  # 2d array: num_atoms x 5
 
     mol_id = all_data[:, 0].astype(int)
+    print(f"mol_id = {mol_id}")
     conformers = all_data[:, 1:]
     # Get ids corresponding to new molecules
     split_indices = np.nonzero(mol_id[:-1] - mol_id[1:])[0] + 1
+    print(f"split_indices = {split_indices}")
     data_list = np.split(conformers, split_indices)
+    print(len(data_list))
+
+    sizes = [split_indices[i+1] - split_indices[i] for i,_ in enumerate(split_indices[:-1])] + [len(split_indices) - split_indices[-1]]
+    size_hist = {}
+    for sz in sizes:
+        size_hist[sz] = size_hist.get(sz, 0) + 1
+    size_hist = dict(sorted(size_hist.items(), key=lambda item: item[0]))
+    print(f"size_hist = {size_hist}")
+
 
     # Filter based on molecule size.
     if filter_size is not None:
@@ -112,9 +123,9 @@ def load_split_data(conformation_file, val_proportion=0.1, test_proportion=0.1,
     # CAREFUL! Only for first time run:
     # np.random.seed(42)
     # perm = np.random.permutation(len(data_list)).astype("int32")
-    # # log.warning("Currently taking a random permutation for "
-    # #       "train/val/test partitions, this needs to be fixed for"
-    # #       "reproducibility.")
+    # log.warning("Currently taking a random permutation for "
+    #       "train/val/test partitions, this needs to be fixed for"
+    #       "reproducibility.")
     # assert not os.path.exists(os.path.join(base_path, "MolPILE_permutation.npy"))
     # np.save(os.path.join(base_path, "MolPILE_permutation.npy"), perm)
     # del perm
@@ -197,6 +208,7 @@ class MolPILEDataset(Dataset):
                 key: value.reshape(1).type(dtype) for key, value in molecule.items()
                 if key not in ["num_atoms", "charges", "positions", "index", "one_hot", "atom_mask"]
             }
+            print(f"coords.shape = {coords.shape}")
             a = torch_geometric.data.Data(
                 one_hot=one_hot,
                 charges=charges,
@@ -206,7 +218,7 @@ class MolPILEDataset(Dataset):
                 mask=mask,
                 **conditional_properties
             )
-            print(a)
+            # print(a)
             return a 
 
     def __len__(self):
@@ -341,14 +353,14 @@ class MolPILETransform(object):
     def __call__(self, data):
         n = data.shape[0]
         new_data = {}
-        print(data[:, -4:-1])
-        print(type(data[:, -4:-1]), print(type(data[:, -4:-1][0]), print(type(data[:, -4:-1][0][0]))))
+        # print(data[:, -4:-1])
+        # print(type(data[:, -4:-1]), print(type(data[:, -4:-1][0]), print(type(data[:, -4:-1][0][0]))))
         new_data["positions"] = torch.from_numpy(data[:, -4:-1])
-        print(f"new_data['positions'] = {new_data['positions']}")
+        # print(f"new_data['positions'] = {new_data['positions']}")
         atom_types = torch.from_numpy(data[:, 0].astype(int)[:, None])
-        print(f"atom_types = {atom_types}")
+        # print(f"atom_types = {atom_types}")
         one_hot = atom_types == self.atomic_number_list
-        print(f"one_hot = {one_hot}")
+        # print(f"one_hot = {one_hot}")
         new_data["one_hot"] = one_hot
         if self.include_charges:
             new_data["charges"] = torch.zeros(n, 1, device=self.device)

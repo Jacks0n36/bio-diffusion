@@ -1,7 +1,7 @@
 dataset: MolPILE
 data_dir: ${paths.data_dir}EDM
 smiles_filepath: ${.data_dir}/MolPILE/MolPILE_cryptand_smiles.pickle
-num_atom_types: 14
+num_atom_types: 47
 num_x_dims: 3
 remove_h: false
 create_pyg_graphs: true

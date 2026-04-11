@@ -993,7 +993,7 @@ class EquivariantVariationalDiffusion(nn.Module):
         )
         print("printing batch hatch match latch catch info...")
         print(batch_index, batch_size, num_nodes, node_mask)
-        
+        # exit()
 
         # account for likelihood change due to normalization
         delta_log_px = self.delta_log_px(num_nodes)
@@ -1107,7 +1107,7 @@ class EquivariantVariationalDiffusion(nn.Module):
             num_nodes=num_nodes,
             device=batch.x.device
         )
-        # print("exiting...")
+        print("exiting...")
         # exit()
         print(self.training)
         if self.training:
