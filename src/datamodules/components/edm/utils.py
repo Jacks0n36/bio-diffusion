@@ -412,7 +412,6 @@ def prepare_context(
     positions_key: str = "x",
     atom_mask_key: str = "mask"
 ) -> TensorType["batch_num_nodes", "num_conditions"]:
-    print(f'batch = {batch}')
     node_mask = batch[atom_mask_key].unsqueeze(-1)
     batch_size, num_nodes = (batch.index.shape[0], batch[positions_key].shape[0])
 
@@ -472,7 +471,6 @@ def load_split_data(conformation_file, val_proportion=0.1, test_proportion=0.1,
     # Get ids corresponding to new molecules
     split_indices = np.nonzero(mol_id[:-1] - mol_id[1:])[0] + 1
     data_list = np.split(conformers, split_indices)
-    print(f"len(data_list) = {len(data_list)}")
     # Filter based on molecule size.
     if filter_size is not None:
         # Keep only molecules <= filter_size
@@ -480,7 +478,6 @@ def load_split_data(conformation_file, val_proportion=0.1, test_proportion=0.1,
                      if molecule.shape[0] <= filter_size]
 
         assert len(data_list) > 0, "No molecules left after filter."
-    print(f"len(data_list) = {len(data_list)}")
     
     # CAREFUL! Only for first time run:
     np.random.seed(42)

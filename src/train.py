@@ -11,6 +11,7 @@ import pytorch_lightning as pl
 
 from omegaconf import DictConfig
 from pytorch_lightning import Callback, LightningDataModule, LightningModule, Trainer
+from pytorch_lightning.tuner.tuning import Tuner
 from pytorch_lightning.loggers import LightningLoggerBase
 from typing import List, Optional, Tuple
 

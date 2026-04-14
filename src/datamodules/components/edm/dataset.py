@@ -32,7 +32,6 @@ def set_worker_sharing_strategy(worker_id: int):
 
 
 def retrieve_dataloaders(dataloader_cfg: DictConfig):
-    print("retrieving dataloaders")
     if "QM9" in dataloader_cfg.dataset:
         batch_size = dataloader_cfg.batch_size
         num_workers = dataloader_cfg.num_workers
@@ -109,9 +108,7 @@ def retrieve_dataloaders(dataloader_cfg: DictConfig):
         charge_scale = None
     
     elif "MolPILE" in dataloader_cfg.dataset:
-        print(f"dataloader_cfg.remove_h = {dataloader_cfg.remove_h}")
         dataset_info = get_dataset_info(dataloader_cfg.dataset, dataloader_cfg.remove_h)
-        print(dataset_info["n_nodes"])
         data_file = os.path.join("data", "EDM", "MolPILE", "all", "MolPILE_8683.npy")
         split_data = build_molpile_dataset.load_split_data(data_file,
                                                         val_proportion=0.2,
@@ -123,7 +120,6 @@ def retrieve_dataloaders(dataloader_cfg: DictConfig):
                                                           dataloader_cfg.sequential)
         dataloaders = {}
         for split, data_list in zip(["train", "valid", "test"], split_data):
-            print(f"len(data_list) = {len(data_list)}")
             dataset = build_molpile_dataset.MolPILEDataset(data_list,
                                                           transform=transform,
                                                           create_pyg_graphs=dataloader_cfg.create_pyg_graphs,
@@ -146,7 +142,6 @@ def retrieve_dataloaders(dataloader_cfg: DictConfig):
         charge_scale = None
     else:
         raise ValueError(f"Unknown dataset {dataloader_cfg.dataset}")
-    print("dataloader has been returned")
     return dataloaders, charge_scale
 
 

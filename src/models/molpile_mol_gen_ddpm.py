@@ -173,6 +173,10 @@ class MolPILEMoleculeGenerationDDPM(LightningModule):
             dataset_smiles_list=smiles_list
         )
 
+        print(self.logger)
+        print(vars(self.logger))
+        exit()
+
     @typechecked
     def forward(
         self,
@@ -196,13 +200,9 @@ class MolPILEMoleculeGenerationDDPM(LightningModule):
         )
 
         # construct invariant node features
-        # print(f"batch.charges = {batch.charges}")
-        print(f"batch.charges.shape = {batch.charges.shape}")
         batch.h = {"categorical": batch.one_hot, "integer": batch.charges}
-        print(f"batch.h['integer'].shape = {batch.h['integer'].shape}")
 
         # derive property contexts (i.e., conditionals)
-        print(f"condition_on_context = {self.condition_on_context}")
         if self.condition_on_context:
             batch.props_context = qm9utils.prepare_context(
                 list(self.hparams.module_cfg.conditioning),
@@ -213,12 +213,12 @@ class MolPILEMoleculeGenerationDDPM(LightningModule):
             batch.props_context = None
 
         # derive node counts per batch
-        print(f"batch.mask.int() = {batch.mask.int()}")
-        print(batch.mask.int().shape)
-        print(f"batch.batch = {batch.batch}")
-        print(batch.batch.shape)
+        # print(f"batch.mask.int() = {batch.mask.int()}")
+        # print(batch.mask.int().shape)
+        # print(f"batch.batch = {batch.batch}")
+        # print(batch.batch.shape)
         num_nodes = scatter(batch.mask.int(), batch.batch, dim=0, reduce="sum")
-        print(f"num_nodes = {num_nodes}")
+        # print(f"num_nodes = {num_nodes}")
         batch.num_nodes_present = num_nodes
 
         # note: `L` terms in e.g., the GCDM paper represent log-likelihoods,
@@ -226,7 +226,6 @@ class MolPILEMoleculeGenerationDDPM(LightningModule):
         print("about to enter ddpm")
         print(f"batch.h['integer'].shape = {batch.h['integer'].shape}")
         print("entering ddpm run...")
-        # print(f"entering ddpm run using ddpm: {self.ddpm}...")
         (
             delta_log_px, error_t, SNR_weight,
             loss_0_x, loss_0_h, neg_log_const_0,

@@ -324,7 +324,6 @@ class GeomDrugsTransform(object):
     def __call__(self, data):
         n = data.shape[0]
         new_data = {}
-        print(data[:, -3:])
         new_data["positions"] = torch.from_numpy(data[:, -3:])
         atom_types = torch.from_numpy(data[:, 0].astype(int)[:, None])
         one_hot = atom_types == self.atomic_number_list
